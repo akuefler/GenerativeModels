@@ -56,38 +56,12 @@ class Solver(object):
         return np.linspace(-5.0,5.0,batch_size)+np.random.random(batch_size)*0.01 # sample noise prior
         
     def sample_batch(self):
-        return np.random.normal(mu,sigma,batch_size)
-    
-    def trainGAN(self, k= 1):
-        # Algorithm 1 of Goodfellow et al 2014
-        histd, histg= np.zeros(EPOCHS), np.zeros(EPOCHS)
-        
-        for i in range(EPOCHS):
-            for j in range(k):
-                #x= np.random.normal(mu,sigma,batch_size) # sampled m-batch from p_data
-                x = sample_batch()
-                x.sort()
-                
-                #z= np.linspace(-5.0,5.0,batch_size)+np.random.random(batch_size)*0.01  # sample m-batch from noise prior
-                z = self.sample_noise()
-                d_feed= {x_input: np.reshape(x,(batch_size,1)),\
-                            z_input: np.reshape(z,(batch_size,1))}
-                
-                histd[i],_=sess.run([obj_d,opt_d], d_feed)
-                
-            #z= np.linspace(-5.0,5.0,batch_size)+np.random.random(batch_size)*0.01 # sample noise prior
-            z = self.sample_noise()
-            
-            g_feed= {z_input: np.reshape(z,(batch_size,1))}
-            histg[i],_=sess.run([obj_g,opt_g], g_feed) # update generator
-            
-            if i % (EPOCHS//10) == 0:
-                print(float(i)/float(EPOCHS))        
+        return np.random.normal(mu,sigma,batch_size)       
         
 class NeuralNet(object):
-    def __init__(self):
+    def __init__(self, batch_size= 1):
         #self.sess = tf.Session()
-        self.batch_size= 1
+        self.batch_size= batch_size
     
     def predict(self, feed):
         #with tf.Session as sess:
@@ -99,34 +73,146 @@ class NeuralNet(object):
         return result
 
 class GAN(object):
-    def __init__(self):
+    def __init__(self, data):
+        #self.L = tf.constant(data.L, name= "L", dtype= tf.float32)
+        self.word2ix = data.word2ix
+        self.vocab_size = len(self.word2ix.keys())
+        
+        self.batch_size = 1
+        self.max_steps = 35
+        self.seq_width = 50
+        
+        self.L = tf.placeholder(tf.float32, shape= (self.vocab_size, self.seq_width))
         
         with tf.variable_scope("G"):
-            z_input= tf.placeholder(tf.float32, shape= (batch_size,1))
-            G,theta_g=mlp(z_input,1) # generate normal transformation of Z
-            G=tf.mul(5.0,G) # scale up by 5 to match range        
+            self.z_input = tf.placeholder(tf.int32,[self.batch_size, self.max_steps])
+            
+            self.z_seq = tf.nn.embedding_lookup(self.L, self.z_input)
+            self.z_eos = tf.placeholder(tf.int32)
+            
+            G, theta_g = self.generator(self.z_seq)
+            #G = tf.maximum(tf.minimum(G, self.vocab_size - 1), 0)
+            
+            #G = tf.cast(G, tf.float32)
             
         with tf.variable_scope("D") as scope:
-            # D(x)
-            x_input=tf.placeholder(tf.float32, shape=(batch_size,1)) # input M normally distributed floats
-            fc,theta_d=mlp(x_input,1) # output likelihood of being normally distributed
-            D1=tf.maximum(tf.minimum(fc,.99), 0.01) # clamp as a probability
+            self.x_input=tf.placeholder(tf.int32,[self.batch_size, self.max_steps]) # input M normally distributed floats
             
-            # make a copy of D that uses the same variables, but takes in G as input
+            D1 = self.discriminator2(self.x_input)
+            self.x_seq = tf.nn.embedding_lookup(self.L, self.x_input)
+            self.x_eos = tf.placeholder(tf.int32)
+            #D1= self.discriminator(self.x_seq, self.x_eos)
+            
             scope.reuse_variables()
-            fc,theta_d=mlp(G,1)
-            D2=tf.maximum(tf.minimum(fc,.99), 0.01)
-                    
-        # What's this for?
-        obj_d=tf.reduce_mean(tf.log(D1)+tf.log(1-D2))
-        obj_g=tf.reduce_mean(tf.log(D2))        
             
-        # set up optimizer for G,D
-        opt_d= momentum_optimizer(1-obj_d, theta_d)
-        opt_g= momentum_optimizer(1-obj_g, theta_g) # maximize log(D(G(z)))
+            self.g_seq = tf.nn.embedding_lookup(self.L, G)
+            D2= self.discriminator(self.g_seq, self.z_eos)
+            #D2 = self.discriminator2(G)
+            
+            theta_d = [w for w in tf.all_variables() if w.name[0] == 'D']
+                    
+        self.obj_d=tf.reduce_mean(tf.log(D1)+tf.log(1-D2))
+        self.obj_g=tf.reduce_mean(tf.log(D2))
         
+        adam = tf.train.AdamOptimizer()
+            
+        # set up optimizer for G,D        
+        opt_d= adam.minimize(1-self.obj_d, var_list= theta_d)
+        opt_g= adam.minimize(1-self.obj_g, var_list= theta_g) # maximize log(D(G(z)))
+        
+    #def momentum_optimizer(self, loss, weights, learning_rate= 1e-4):
+        #opt = tf.train.AdamOptimizer(learning_rate,0.6)
+        #mini = opt.minimize(loss, var_list= weights)
+        
+        #return mini
+    
+    def trainGAN(self, k= 1, EPOCHS= 10):
+        # Algorithm 1 of Goodfellow et al 2014
+        histd, histg= np.zeros(EPOCHS), np.zeros(EPOCHS)
+        
+        for i in range(EPOCHS):
+            for j in range(k):
+                x = sample_batch()
+                x.sort()
+                
+                z = self.sample_noise()
+                d_feed= {x_input: np.reshape(x,(batch_size,1)),\
+                            z_input: np.reshape(z,(batch_size,1))}
+                
+                histd[i],_=sess.run([obj_d,opt_d], d_feed)
+                
+            z = self.sample_noise()
+            
+            g_feed= {z_input: np.reshape(z,(batch_size,1))}
+            histg[i],_=sess.run([obj_g,opt_g], g_feed) # update generator
+            
+            if i % (EPOCHS//10) == 0:
+                print(float(i)/float(EPOCHS))     
+        
+        
+    def generator(self, z):
+        
+        inputs = [tf.reshape(i, (self.batch_size, self.seq_width))\
+                  for i in tf.split(1, self.max_steps, z)]
+        
+        lstm_size= 100
+        
+        cell = tf.nn.rnn_cell.LSTMCell(lstm_size, input_size= self.seq_width)
+        
+        initial_state= cell.zero_state(self.batch_size, tf.float32)
+        lstm_outputs, states = tf.nn.rnn(cell, inputs,
+                                    initial_state= initial_state,
+                                    sequence_length= self.z_eos)
+        
+        U = tf.get_variable('U', shape= (lstm_size, self.vocab_size))
+        b = tf.get_variable('b', shape= (self.vocab_size,))
+    
+        outputs= [None]*len(lstm_outputs)
+        for t, h in enumerate(lstm_outputs):
+            outputs[t] = tf.nn.relu( tf.matmul(h, U) + b )
+        
+        output = tf.reshape(tf.concat(0,outputs), (self.batch_size, self.max_steps, self.vocab_size))
+        
+        return tf.argmax( output , 2 ), [U, b] #ISSUE: Remember LSTM weights.
+    
+    def discriminator2(self, x):
+        U = tf.get_variable('W', shape= (self.max_steps, 1))
+        b = tf.get_variable('bs', shape= (1,))
+        
+        return tf.nn.sigmoid( tf.matmul(tf.cast(x,tf.float32), U) + b )
+        
+    
+    def discriminator(self, x, eos):
+        
+        inputs = [tf.reshape(i, (self.batch_size, self.seq_width))\
+                  for i in tf.split(1, self.max_steps, x)]
+        
+        lstm_size= 100
+        
+        cell = tf.nn.rnn_cell.LSTMCell(lstm_size, input_size= self.seq_width)
+        
+        initial_state= cell.zero_state(self.batch_size, tf.float32)
+        lstm_outputs, states = tf.nn.rnn(cell, inputs,
+                                    initial_state= initial_state,
+                                    sequence_length= eos) #What to do with z_eos vs. x_eos?
+        
+        U = tf.get_variable('W', shape= (lstm_size, 1))
+        b = tf.get_variable('bs', shape= (1,))
+            
+        outputs= [None]*len(lstm_outputs)
+        for t, h in enumerate(lstm_outputs):
+            outputs[t] = tf.nn.sigmoid( tf.matmul(h, U) + b )
+            
+        predictions = tf.concat(1, outputs, name= 'preds')
+        
+        #Slice off the last prediction from the lstm.
+        output = tf.slice(predictions, eos, (self.batch_size, 1)) #x_eos or x_eos-1
+            
+        return output      
+        
+                         
 class RotNet(NeuralNet):
-    def __init__(self, concat_ave= True):
+    def __init__(self, concat_ave= False, concat_ins= False):
         NeuralNet.__init__(self)
         
         #self.batch_size= 10
@@ -166,14 +252,17 @@ class RotNet(NeuralNet):
             if concat_ave:
                 m = self.ave_extractor(self.x1_input, self.x2_input)
                 M = tf.concat(3, [m, M], name='concat')
+                
+            if concat_ins:
+                m1 = tf.image.resize_images(self.x1_input, self.H_merge, self.W_merge)
+                m2 = tf.image.resize_images(self.x2_input, self.H_merge, self.W_merge)
+                M = tf.concat(3, [m1, m2, M], name='concat')                
+                
             self.output_layer = self.generator(M)
             
-        #loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(y, self.labels_placeholder)) + reg
-        #loss = tf.sqrt(tf.reduce_sum(tf.square(self.output_layer - self.y_input)))
-        
-        #self.J = tf.sqrt(tf.reduce_sum(tf.square(self.output_layer - self.y_input)))
-        #self.J = tf.nn.l2_loss(self.output_layer - self.y_input)
         self.J = cosine_loss(self.output_layer, self.y_input)
+        #self.J = dot_loss(self.output_layer, self.y_input)
+        
         
     def objective(self, predicted, truth):
         """
@@ -230,7 +319,7 @@ class RotNet(NeuralNet):
         return y
         
         
-    def generator(self, x, convolve= True):
+    def generator(self, x, convolve= True, skip_connect= True):
         #x_volume = tf.reshape(x, shape= (self.batch_size, self.H_merge, self.W_merge, self.C_merge))
         output_shape= (self.batch_size, self.H, self.W, 3)
         
@@ -242,33 +331,62 @@ class RotNet(NeuralNet):
 
         ##Deconv 1:        
         updown0 = updown_module(x, 0, convolve= True, 
-                            c_in= C_merge, c_out= C_hid,
+                            c_up= C_hid, c_down= 3, up= 'deconv',
                             f_up=2, f_down= f_down, t=tf.nn.elu)
+        if skip_connect:
+            g_0 = tf.nn.sigmoid(tf.get_variable("gate_0", shape=(1)))
+            g_x1_0 = tf.nn.sigmoid(tf.get_variable("gate_x1_0", shape=(1)))
+            g_x2_0 = tf.nn.sigmoid(tf.get_variable("gate_x2_0", shape=(1)))             
+
+            x1_0 = tf.image.resize_images(self.x1_input, updown0.get_shape()[1], updown0.get_shape()[2])
+            x2_0 = tf.image.resize_images(self.x2_input, updown0.get_shape()[1], updown0.get_shape()[2])
+            updown0 = updown0 * g_0 + (g_x1_0) * x1_0 + (g_x2_0) * x2_0        
 
         ##Deconv 2:
         updown1 = updown_module(updown0, 1, convolve= True, 
-                            c_in= C_hid, c_out= C_hid,
+                            c_up= C_hid, c_down= 3, up= 'deconv',
                             f_up=2, f_down= f_down, t=tf.nn.elu)
+        if skip_connect:
+            g_1 = tf.nn.sigmoid(tf.get_variable("gate_1", shape=(1)))
+            g_x1_1 = tf.nn.sigmoid(tf.get_variable("gate_x1_1", shape=(1)))
+            g_x2_1 = tf.nn.sigmoid(tf.get_variable("gate_x2_1", shape=(1)))
+            
+            x1_1 = tf.image.resize_images(self.x1_input, updown1.get_shape()[1], updown1.get_shape()[2])
+            x2_1 = tf.image.resize_images(self.x2_input, updown1.get_shape()[1], updown1.get_shape()[2])
+            updown1 = updown1 * g_1 + ( (g_x1_1)*x1_1 + (g_x2_1)*x2_1 )
         
         ##Deconv 3:
         updown2 = updown_module(updown1, 2, convolve= True, 
-                                    c_in= C_hid, c_out= 3,
-                                    f_up=2, f_down=7, t=tf.nn.elu)                
+                                    c_up= C_hid, c_down= 3, up= 'deconv',
+                                    f_up=2, f_down=3, t=tf.nn.elu)
+        if skip_connect:
+            g_2 = tf.nn.sigmoid(tf.get_variable("gate_2", shape=(1)))
+            g_x1_2 = tf.nn.sigmoid(tf.get_variable("gate_x1_2", shape=(1)))
+            g_x2_2 = tf.nn.sigmoid(tf.get_variable("gate_x2_2", shape=(1)))
+            
+            x1_2 = tf.image.resize_images(self.x1_input, updown2.get_shape()[1], updown2.get_shape()[2])
+            x2_2 = tf.image.resize_images(self.x2_input, updown2.get_shape()[1], updown2.get_shape()[2])
+            
+            updown2 = updown2 * g_2 + ( (g_x1_2)*x1_2 + (g_x2_2)*x2_2 ) 
         
-        ###Convolve x1
-        #w_conv_x1 = tf.get_variable("w_x1", shape= [self.filter_size,self.filter_size,3,3],
-                                  #initializer= tf.contrib.layers.xavier_initializer_conv2d())
-        #b_conv_x1 = tf.get_variable("b_x1", shape= [3])        
-        #h_conv_x1 = tf.nn.elu(conv_keepdim(self.x1_input, w_conv_x1) + b_conv_x1)
+        if True:
+            h_chan0 = 3
+            
+            w_conv0 = tf.get_variable("w_final1", shape= [5,5,3,C_hid],
+                                      initializer= tf.contrib.layers.xavier_initializer_conv2d())
+            b_conv0 = tf.get_variable("b_final1", shape= [C_hid])        
+            h_conv0 = tf.nn.elu(conv_keepdim(updown2, w_conv0) + b_conv0)
+            
+            w_conv1 = tf.get_variable("w_final2", shape= [1,1,C_hid,3],
+                                      initializer= tf.contrib.layers.xavier_initializer_conv2d())
+            b_conv1 = tf.get_variable("b_final2", shape= [3])        
+            h_conv1 = tf.nn.elu(conv_keepdim(h_conv0, w_conv1) + b_conv1)            
+            
+            penul = h_conv1
+        else:
+            penul = updown2
         
-        ###Convolve x2
-        #w_conv_x2 = tf.get_variable("w_x2", shape= [self.filter_size,self.filter_size,3,3],
-                                  #initializer= tf.contrib.layers.xavier_initializer_conv2d())
-        #b_conv_x2 = tf.get_variable("b_x2", shape= [3])        
-        #h_conv_x2 = tf.nn.elu(conv_keepdim(self.x2_input, w_conv_x2) + b_conv_x2)        
-        
-        #out = img_normalize(updown2 * h_conv_x1 * h_conv_x2)
-        out = img_normalize(updown2)
+        out = img_normalize(penul)
         
         return out
         #return out, [w_convT0, b_convT0, w_convT1, b_convT1]
