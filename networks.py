@@ -88,26 +88,25 @@ class GAN(object):
             self.z_input = tf.placeholder(tf.int32,[self.batch_size, self.max_steps])
             
             self.z_seq = tf.nn.embedding_lookup(self.L, self.z_input)
-            self.z_eos = tf.placeholder(tf.int32)
+            self.z_eos = tf.placeholder(tf.int32, shape= (self.batch_size,))
             
             G, theta_g = self.generator(self.z_seq)
-            #G = tf.maximum(tf.minimum(G, self.vocab_size - 1), 0)
-            
-            #G = tf.cast(G, tf.float32)
             
         with tf.variable_scope("D") as scope:
             self.x_input=tf.placeholder(tf.int32,[self.batch_size, self.max_steps]) # input M normally distributed floats
             
-            D1 = self.discriminator2(self.x_input)
+            #D1 = self.discriminator2(self.x_input)
             self.x_seq = tf.nn.embedding_lookup(self.L, self.x_input)
-            self.x_eos = tf.placeholder(tf.int32)
-            #D1= self.discriminator(self.x_seq, self.x_eos)
+            self.x_eos = tf.placeholder(tf.int32, shape= (self.batch_size,))
+            D1= self.discriminator(self.x_seq, self.x_eos)
             
             scope.reuse_variables()
             
-            self.g_seq = tf.nn.embedding_lookup(self.L, G)
-            D2= self.discriminator(self.g_seq, self.z_eos)
-            #D2 = self.discriminator2(G)
+            #gMat = tf.reshape(G, (self.batch_size * self.max_steps, self.vocab_size))
+            #self.g_seq = tf.reshape( tf.matmul(gMat, self.L),\
+                                     #(self.batch_size, self.max_steps, self.seq_width) ) #Embedding lookup with one hot vectors.
+            
+            D2= self.discriminator(G, self.z_eos)
             
             theta_d = [w for w in tf.all_variables() if w.name[0] == 'D']
                     
@@ -117,14 +116,9 @@ class GAN(object):
         adam = tf.train.AdamOptimizer()
             
         # set up optimizer for G,D        
-        opt_d= adam.minimize(1-self.obj_d, var_list= theta_d)
-        opt_g= adam.minimize(1-self.obj_g, var_list= theta_g) # maximize log(D(G(z)))
+        self.opt_d= adam.minimize(1-self.obj_d, var_list= theta_d)
+        self.opt_g= adam.minimize(1-self.obj_g, var_list= theta_g) # maximize log(D(G(z)))
         
-    #def momentum_optimizer(self, loss, weights, learning_rate= 1e-4):
-        #opt = tf.train.AdamOptimizer(learning_rate,0.6)
-        #mini = opt.minimize(loss, var_list= weights)
-        
-        #return mini
     
     def trainGAN(self, k= 1, EPOCHS= 10):
         # Algorithm 1 of Goodfellow et al 2014
@@ -160,26 +154,34 @@ class GAN(object):
         cell = tf.nn.rnn_cell.LSTMCell(lstm_size, input_size= self.seq_width)
         
         initial_state= cell.zero_state(self.batch_size, tf.float32)
+        
+        #eos_ix = tf.reshape( self.z_eos, shape= (self.batch_size,))
         lstm_outputs, states = tf.nn.rnn(cell, inputs,
                                     initial_state= initial_state,
-                                    sequence_length= self.z_eos)
+                                    sequence_length= self.z_eos ) #ISSUE: Squeezing
         
-        U = tf.get_variable('U', shape= (lstm_size, self.vocab_size))
-        b = tf.get_variable('b', shape= (self.vocab_size,))
+        #Variables:
+        W1 = tf.get_variable('W1', shape= (lstm_size, self.seq_width))
+        b1 = tf.get_variable('b1', shape= (self.seq_width,))
+        
+        W2 = tf.get_variable('W2', shape= (self.seq_width, self.seq_width))
+        b2 = tf.get_variable('b2', shape= (self.seq_width,))        
     
         outputs= [None]*len(lstm_outputs)
-        for t, h in enumerate(lstm_outputs):
-            outputs[t] = tf.nn.relu( tf.matmul(h, U) + b )
+        for t, h1 in enumerate(lstm_outputs):
+            h2 = tf.nn.elu( tf.matmul(h1, W1) + b1 )
+            outputs[t] = ( tf.matmul(h2, W2) + b2 )
+            
         
-        output = tf.reshape(tf.concat(0,outputs), (self.batch_size, self.max_steps, self.vocab_size))
+        G = tf.reshape(tf.concat(0,outputs) , shape= (self.batch_size, self.max_steps, self.seq_width) )
         
-        return tf.argmax( output , 2 ), [U, b] #ISSUE: Remember LSTM weights.
+        return G, [W1, b1, W2, b2] #ISSUE: Remember LSTM weights.
     
-    def discriminator2(self, x):
-        U = tf.get_variable('W', shape= (self.max_steps, 1))
-        b = tf.get_variable('bs', shape= (1,))
+    #def discriminator2(self, x):
+        #U = tf.get_variable('W', shape= (self.max_steps, 1))
+        #b = tf.get_variable('bs', shape= (1,))
         
-        return tf.nn.sigmoid( tf.matmul(tf.cast(x,tf.float32), U) + b )
+        #return tf.nn.sigmoid( tf.matmul(tf.cast(x,tf.float32), U) + b )
         
     
     def discriminator(self, x, eos):
@@ -192,6 +194,8 @@ class GAN(object):
         cell = tf.nn.rnn_cell.LSTMCell(lstm_size, input_size= self.seq_width)
         
         initial_state= cell.zero_state(self.batch_size, tf.float32)
+        
+        #eos_ix = tf.reshape( eos, shape= (self.batch_size,))
         lstm_outputs, states = tf.nn.rnn(cell, inputs,
                                     initial_state= initial_state,
                                     sequence_length= eos) #What to do with z_eos vs. x_eos?
@@ -206,7 +210,15 @@ class GAN(object):
         predictions = tf.concat(1, outputs, name= 'preds')
         
         #Slice off the last prediction from the lstm.
-        output = tf.slice(predictions, eos, (self.batch_size, 1)) #x_eos or x_eos-1
+        
+        #wons= tf.cast( tf.ones((self.batch_size, 1)) ,dtype= tf.int32)       
+        #cutoff= tf.concat(1, [tf.reshape( eos, shape= wons.get_shape() ), wons]) )
+        #cutoff= tf.concat(1, [tf.transpose( tf.range(0, limit= 10) ), eos])
+        
+        ran= tf.expand_dims( ( tf.range(0, limit= self.batch_size) ), 1)
+        cutoff= tf.squeeze( tf.concat(1, [ran, tf.expand_dims(eos, 1)]) ) #ISSUE: Squeeze is weird.
+        
+        output = tf.slice(predictions, cutoff, [self.batch_size, 1]) #x_eos or x_eos-1
             
         return output      
         
