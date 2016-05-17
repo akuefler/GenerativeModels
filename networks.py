@@ -73,14 +73,14 @@ class NeuralNet(object):
         return result
 
 class GAN(object):
-    def __init__(self, data):
+    def __init__(self, data, batch_size= 1, max_steps= 35, seq_width= 50):
         #self.L = tf.constant(data.L, name= "L", dtype= tf.float32)
         self.word2ix = data.word2ix
         self.vocab_size = len(self.word2ix.keys())
         
-        self.batch_size = 1
-        self.max_steps = 35
-        self.seq_width = 50
+        self.batch_size = batch_size
+        self.max_steps = max_steps
+        self.seq_width = seq_width
         
         self.L = tf.placeholder(tf.float32, shape= (self.vocab_size, self.seq_width))
         
@@ -92,23 +92,25 @@ class GAN(object):
             
             G, theta_g = self.generator(self.z_seq)
             
+            self.g_outs= G
+            
         with tf.variable_scope("D") as scope:
             self.x_input=tf.placeholder(tf.int32,[self.batch_size, self.max_steps]) # input M normally distributed floats
             
             #D1 = self.discriminator2(self.x_input)
             self.x_seq = tf.nn.embedding_lookup(self.L, self.x_input)
             self.x_eos = tf.placeholder(tf.int32, shape= (self.batch_size,))
-            D1= self.discriminator(self.x_seq, self.x_eos)
+            D1, _ = self.discriminator(self.x_seq, self.x_eos)
+            
+            self.d1_outs= D1
             
             scope.reuse_variables()
             
-            #gMat = tf.reshape(G, (self.batch_size * self.max_steps, self.vocab_size))
-            #self.g_seq = tf.reshape( tf.matmul(gMat, self.L),\
-                                     #(self.batch_size, self.max_steps, self.seq_width) ) #Embedding lookup with one hot vectors.
+            D2, theta_d= self.discriminator(G, self.z_eos)
             
-            D2= self.discriminator(G, self.z_eos)
+            self.d2_outs= D2
             
-            theta_d = [w for w in tf.all_variables() if w.name[0] == 'D']
+            #theta_d = [w for w in tf.all_variables() if w.name[0] == 'D']
                     
         self.obj_d=tf.reduce_mean(tf.log(D1)+tf.log(1-D2))
         self.obj_g=tf.reduce_mean(tf.log(D2))
@@ -175,13 +177,7 @@ class GAN(object):
         
         G = tf.reshape(tf.concat(0,outputs) , shape= (self.batch_size, self.max_steps, self.seq_width) )
         
-        return G, [W1, b1, W2, b2] #ISSUE: Remember LSTM weights.
-    
-    #def discriminator2(self, x):
-        #U = tf.get_variable('W', shape= (self.max_steps, 1))
-        #b = tf.get_variable('bs', shape= (1,))
-        
-        #return tf.nn.sigmoid( tf.matmul(tf.cast(x,tf.float32), U) + b )
+        return G, [w for w in tf.all_variables() if w.name[0] == 'G']
         
     
     def discriminator(self, x, eos):
@@ -208,19 +204,11 @@ class GAN(object):
             outputs[t] = tf.nn.sigmoid( tf.matmul(h, U) + b )
             
         predictions = tf.concat(1, outputs, name= 'preds')
+    
         
-        #Slice off the last prediction from the lstm.
-        
-        #wons= tf.cast( tf.ones((self.batch_size, 1)) ,dtype= tf.int32)       
-        #cutoff= tf.concat(1, [tf.reshape( eos, shape= wons.get_shape() ), wons]) )
-        #cutoff= tf.concat(1, [tf.transpose( tf.range(0, limit= 10) ), eos])
-        
-        ran= tf.expand_dims( ( tf.range(0, limit= self.batch_size) ), 1)
-        cutoff= tf.squeeze( tf.concat(1, [ran, tf.expand_dims(eos, 1)]) ) #ISSUE: Squeeze is weird.
-        
-        output = tf.slice(predictions, cutoff, [self.batch_size, 1]) #x_eos or x_eos-1
+        output= gather_indices(predictions, eos)
             
-        return output      
+        return output, [w for w in tf.all_variables() if w.name[0] == 'D']     
         
                          
 class RotNet(NeuralNet):
