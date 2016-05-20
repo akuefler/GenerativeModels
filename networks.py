@@ -1,6 +1,10 @@
 import tensorflow as tf
 from layers import *
 
+import time
+import tqdm
+import os
+
 """
 GAN code from:
 http://evjang.com/articles/genadv1
@@ -10,10 +14,9 @@ Truth ~ x
 Max: D_1(x)
 Min: D_2(x')
 
-
 """
-batch_size= 10
-EPOCHS= 10
+#batch_size= 10
+#EPOCHS= 10
 
 def mlp(input, output_dim):
     # construct learnable parameters within local scope
@@ -37,26 +40,84 @@ class Solver(object):
         self.sess = tf.Session()
         self.opt = optimizer.minimize(model.J)
     
-    def trainROT(self, X1, X2, Y, EPOCHS= 100):
+    def trainROT(self, data, save= True, EPOCHS= 100, interval= 10):
         model = self.model
-        #sess = tf.Session()
         self.sess.run(tf.initialize_all_variables())
+        path= ''
+        
+        if save:
+            saver = tf.train.Saver()
+            
+            folder_name = time.strftime("%d-%m-%Y")+'_'+(time.strftime("%H-%M-%S"))
+            path = './img_weights'+folder_name
+            
+            os.mkdir(path)
+                        
+            f = open(path+'/'+'results.txt','w')
+            for hp_key, hp_val in model.hyperparams.iteritems():
+                f.write(hp_key+": "+str(hp_val)+'\n')            
         
         print "Epochs: ", EPOCHS
         
         for i in range(EPOCHS):
-            g_feed= {model.x1_input: X1, model.x2_input: X2, model.y_input: Y}
-            loss, optout =self.sess.run([model.J, self.opt], g_feed) # update generator
+            losses = []
+            for minibatch in tqdm.tqdm(data.iterate_minibatches(\
+                mode= 'train', batch_size= model.batch_size, shuffle= True)):
+                X1, X2, Y= data.minibatch_2_Xy(minibatch)
+                
+                g_feed= {model.x1_input: X1, model.x2_input: X2, model.y_input: Y}
+                loss, optout =self.sess.run([model.J, self.opt], g_feed) # update generator
+                losses.append(loss)
+                
+            if save:
+                save_path = saver.save(self.sess,\
+                                       'img_weights/'+folder_name+"/epoch"+str(i)+".ckpt")
+            if i % (EPOCHS // interval) == 0:
+                ave_loss = np.mean(losses)
+                print("completed: ", float(i)/float(EPOCHS))
+                print("loss: ", ave_loss)
+                
+                if save:
+                    f.write("Epoch: "+str(i)+'\n')
+                    f.write("Train Loss: "+str(ave_loss)+'\n')
+                
+        if save:
+            f.close
+            
+        return path + 'epoch'+str(i-1)+'.ckpt'
+                
+    def trainGAN(self, DATA, k= 1, EPOCHS= 100):
+        # Algorithm 1 of Goodfellow et al 2014
+        #histd, histg= np.zeros(EPOCHS), np.zeros(EPOCHS)
+        model= self.model
+        
+        self.sess.run(tf.initialize_all_variables())
+        
+        for i in range(EPOCHS):
+            for j in range(k):
+                x, xeos = DATA.sample_batch(model.batch_size)
+                z, zeos = DATA.sample_batch(model.batch_size, noise= True)
+                
+                #d_feed= {x_input: np.reshape(x,(batch_size,1)),\
+                            #z_input: np.reshape(z,(batch_size,1))}
+                d_feed= {model.z_input : z,
+                        model.z_eos : zeos,
+                        model.x_input : x,
+                        model.x_eos : xeos,
+                        }
+                
+                loss_d, _ = self.sess.run([model.obj_d, model.opt_d], d_feed)
+                
+            z, zeos = DATA.sample_batch(model.batch_size, noise= True)
+            
+            g_feed= {model.z_input: z, model.z_eos: zeos}
+            
+            loss_g, _ = self.sess.run([model.obj_g, model.opt_g], g_feed)
             
             if i % (EPOCHS//10) == 0:
-                print("completed: ", float(i)/float(EPOCHS))
-                print("loss: ", loss)
-    
-    def sample_noise(self):
-        return np.linspace(-5.0,5.0,batch_size)+np.random.random(batch_size)*0.01 # sample noise prior
-        
-    def sample_batch(self):
-        return np.random.normal(mu,sigma,batch_size)       
+                print "loss g: ", loss_g
+                print(float(i)/float(EPOCHS))     
+          
         
 class NeuralNet(object):
     def __init__(self, batch_size= 1):
@@ -74,7 +135,7 @@ class NeuralNet(object):
 
 class GAN(object):
     def __init__(self, data, batch_size= 1, max_steps= 35, seq_width= 50):
-        #self.L = tf.constant(data.L, name= "L", dtype= tf.float32)
+
         self.word2ix = data.word2ix
         self.vocab_size = len(self.word2ix.keys())
         
@@ -82,7 +143,7 @@ class GAN(object):
         self.max_steps = max_steps
         self.seq_width = seq_width
         
-        self.L = tf.placeholder(tf.float32, shape= (self.vocab_size, self.seq_width))
+        self.L = tf.constant(data.L, name= 'embed', dtype= tf.float32)
         
         with tf.variable_scope("G"):
             self.z_input = tf.placeholder(tf.int32,[self.batch_size, self.max_steps])
@@ -120,30 +181,6 @@ class GAN(object):
         # set up optimizer for G,D        
         self.opt_d= adam.minimize(1-self.obj_d, var_list= theta_d)
         self.opt_g= adam.minimize(1-self.obj_g, var_list= theta_g) # maximize log(D(G(z)))
-        
-    
-    def trainGAN(self, k= 1, EPOCHS= 10):
-        # Algorithm 1 of Goodfellow et al 2014
-        histd, histg= np.zeros(EPOCHS), np.zeros(EPOCHS)
-        
-        for i in range(EPOCHS):
-            for j in range(k):
-                x = sample_batch()
-                x.sort()
-                
-                z = self.sample_noise()
-                d_feed= {x_input: np.reshape(x,(batch_size,1)),\
-                            z_input: np.reshape(z,(batch_size,1))}
-                
-                histd[i],_=sess.run([obj_d,opt_d], d_feed)
-                
-            z = self.sample_noise()
-            
-            g_feed= {z_input: np.reshape(z,(batch_size,1))}
-            histg[i],_=sess.run([obj_g,opt_g], g_feed) # update generator
-            
-            if i % (EPOCHS//10) == 0:
-                print(float(i)/float(EPOCHS))     
         
         
     def generator(self, z):
@@ -204,7 +241,6 @@ class GAN(object):
             outputs[t] = tf.nn.sigmoid( tf.matmul(h, U) + b )
             
         predictions = tf.concat(1, outputs, name= 'preds')
-    
         
         output= gather_indices(predictions, eos)
             
@@ -212,18 +248,24 @@ class GAN(object):
         
                          
 class RotNet(NeuralNet):
-    def __init__(self, concat_ave= False, concat_ins= False):
-        NeuralNet.__init__(self)
+    def __init__(self, hyperparams, concat_ave= False, concat_ins= False):
+        NeuralNet.__init__(self, batch_size= hyperparams['batch_size'])
+        
+        self.hyperparams= hyperparams
+        
+        self.batch_size= self.hyperparams['batch_size']
+        self.scale = self.hyperparams['scale']
+        self.num_ups= self.hyperparams['num_ups']
         
         #self.batch_size= 10
         self.C= 3
-        self.H= 128
-        self.W= 128
+        self.H= 2 ** self.scale
+        self.W= 2 ** self.scale
         
         #Dimensions after merging:
         self.C_merge = 1
-        self.H_merge = 2 ** 4
-        self.W_merge = 2 ** 4
+        self.H_merge = 2 ** (self.scale - self.num_ups)
+        self.W_merge = 2 ** (self.scale - self.num_ups)
         
         C = self.C
         H = self.H
@@ -249,6 +291,7 @@ class RotNet(NeuralNet):
         # Layers for generating output from merge of 1 and 2
         with tf.variable_scope("GEN"):
             M = tf.mul(P1, P2)
+            
             if concat_ave:
                 m = self.ave_extractor(self.x1_input, self.x2_input)
                 M = tf.concat(3, [m, M], name='concat')
@@ -260,8 +303,8 @@ class RotNet(NeuralNet):
                 
             self.output_layer = self.generator(M)
             
-        self.J = cosine_loss(self.output_layer, self.y_input)
-        #self.J = dot_loss(self.output_layer, self.y_input)
+        if self.hyperparams['loss'] == 'cosine':
+            self.J = cosine_loss(self.output_layer, self.y_input)
         
         
     def objective(self, predicted, truth):
@@ -271,32 +314,33 @@ class RotNet(NeuralNet):
         
         loss = tf.nn.l2_loss(predicted - truth)
         
-    def extractor(self, x, output_dim):
+    def extractor(self, x, output_dim, num_conv= 2, chan_out= 50):
         """
         Call this within a scope.
-        """
-        # construct learnable parameters within local scope
-        
-        #self.output_layer = tf.add(x, tf.ones_like(x))        
+        """        
+        f = 3
         
         #Convolution 0
-        h_chan0 = 50
-        w_conv0 = tf.get_variable("w0", shape= [self.filter_size,self.filter_size,3,h_chan0],
-                                  initializer= tf.contrib.layers.xavier_initializer_conv2d())
-        b_conv0 = tf.get_variable("b0", shape= [h_chan0])        
-        h_conv0 = tf.nn.elu(conv_keepdim(x, w_conv0) + b_conv0)
-        h_pool0 = max_pool_2x2(h_conv0)
+        
+        #h_chan0 = 50
+        #w_conv0 = tf.get_variable("w0", shape= [self.filter_size,self.filter_size,3,h_chan0],
+                                  #initializer= tf.contrib.layers.xavier_initializer_conv2d())
+        #b_conv0 = tf.get_variable("b0", shape= [h_chan0])        
+        #h_conv0 = tf.nn.elu(conv_keepdim(x, w_conv0) + b_conv0)
+        #h_pool0 = max_pool_2x2(h_conv0)
+        
+        h= multi_conv(x, num_conv, 3, chan_out, f, nonlin= tf.nn.elu)
         
         # Shrink
         h_chan2 = 2
-        w_conv2 = tf.get_variable("w2", shape= [self.filter_size,self.filter_size,h_chan0,h_chan2],
+        w_conv2 = tf.get_variable("w_shrink", shape= [self.filter_size,self.filter_size,chan_out,h_chan2],
                                   initializer= tf.contrib.layers.xavier_initializer_conv2d())
-        b_conv2 = tf.get_variable("b2", shape= [h_chan2])        
-        h_conv2 = tf.nn.elu(conv_keepdim(h_pool0, w_conv2) + b_conv2)
+        b_conv2 = tf.get_variable("b_shrink", shape= [h_chan2])        
+        h_conv2 = tf.nn.elu(conv_keepdim(h, w_conv2) + b_conv2)
         h_pool2 = max_pool_4x4(h_conv2)        
         
         # Fully-Connected 1
-        h_pool1_flat = tf.reshape(h_pool2, [self.batch_size, -1])
+        h_pool1_flat = tf.reshape(h_pool2, [self.batch_size, 2*((2 ** (self.scale - 2))**2)])
         
         w_fc0 = tf.get_variable("w3", [h_pool1_flat.get_shape()[1], output_dim],
                                 initializer= tf.contrib.layers.xavier_initializer())
@@ -319,68 +363,56 @@ class RotNet(NeuralNet):
         return y
         
         
-    def generator(self, x, convolve= True, skip_connect= True):
+    def generator(self, x, convolve= True):
         #x_volume = tf.reshape(x, shape= (self.batch_size, self.H_merge, self.W_merge, self.C_merge))
-        output_shape= (self.batch_size, self.H, self.W, 3)
+        #output_shape= (self.batch_size, self.H, self.W, 3)
         
-        f = 2
-        f_down = 3
-        #C_hid = 10
-        C_hid = 50
-        C_merge = x.get_shape()[-1].value
+        c_up = self.hyperparams['c_up']
+        up= self.hyperparams['up']
 
-        ##Deconv 1:        
-        updown0 = updown_module(x, 0, convolve= True, 
-                            c_up= C_hid, c_down= 3, up= 'deconv',
-                            f_up=2, f_down= f_down, t=tf.nn.elu)
-        if skip_connect:
-            g_0 = tf.nn.sigmoid(tf.get_variable("gate_0", shape=(1)))
-            g_x1_0 = tf.nn.sigmoid(tf.get_variable("gate_x1_0", shape=(1)))
-            g_x2_0 = tf.nn.sigmoid(tf.get_variable("gate_x2_0", shape=(1)))             
-
-            x1_0 = tf.image.resize_images(self.x1_input, updown0.get_shape()[1], updown0.get_shape()[2])
-            x2_0 = tf.image.resize_images(self.x2_input, updown0.get_shape()[1], updown0.get_shape()[2])
-            updown0 = updown0 * g_0 + (g_x1_0) * x1_0 + (g_x2_0) * x2_0        
-
-        ##Deconv 2:
-        updown1 = updown_module(updown0, 1, convolve= True, 
-                            c_up= C_hid, c_down= 3, up= 'deconv',
-                            f_up=2, f_down= f_down, t=tf.nn.elu)
-        if skip_connect:
-            g_1 = tf.nn.sigmoid(tf.get_variable("gate_1", shape=(1)))
-            g_x1_1 = tf.nn.sigmoid(tf.get_variable("gate_x1_1", shape=(1)))
-            g_x2_1 = tf.nn.sigmoid(tf.get_variable("gate_x2_1", shape=(1)))
-            
-            x1_1 = tf.image.resize_images(self.x1_input, updown1.get_shape()[1], updown1.get_shape()[2])
-            x2_1 = tf.image.resize_images(self.x2_input, updown1.get_shape()[1], updown1.get_shape()[2])
-            updown1 = updown1 * g_1 + ( (g_x1_1)*x1_1 + (g_x2_1)*x2_1 )
+        f_down=self.hyperparams['f_down']
+        f_out =self.hyperparams['f_out']
         
-        ##Deconv 3:
-        updown2 = updown_module(updown1, 2, convolve= True, 
-                                    c_up= C_hid, c_down= 3, up= 'deconv',
-                                    f_up=2, f_down=3, t=tf.nn.elu)
-        if skip_connect:
-            g_2 = tf.nn.sigmoid(tf.get_variable("gate_2", shape=(1)))
-            g_x1_2 = tf.nn.sigmoid(tf.get_variable("gate_x1_2", shape=(1)))
-            g_x2_2 = tf.nn.sigmoid(tf.get_variable("gate_x2_2", shape=(1)))
-            
-            x1_2 = tf.image.resize_images(self.x1_input, updown2.get_shape()[1], updown2.get_shape()[2])
-            x2_2 = tf.image.resize_images(self.x2_input, updown2.get_shape()[1], updown2.get_shape()[2])
-            
-            updown2 = updown2 * g_2 + ( (g_x1_2)*x1_2 + (g_x2_2)*x2_2 ) 
+        convolve_out = self.hyperparams['convolve_out']
+        convolve_up = self.hyperparams['convolve_up']
         
-        if True:
-            h_chan0 = 3
-            
-            w_conv0 = tf.get_variable("w_final1", shape= [5,5,3,C_hid],
+        skip_connect= self.hyperparams['skip_connect']
+        
+        if skip_connect:
+            c_down= 3
+        else:
+            c_down = self.hyperparams['c_down']
+        
+        f = 2        
+        updown = x
+        for i in range(self.num_ups):
+            with tf.variable_scope("UP%i"%i):
+                
+                tf.get_variable_scope()
+                ##Deconv 1:        
+                updown = updown_module(updown, 0, convolve= convolve_up, 
+                                    c_up= c_up, c_down= c_down, up= 'deconv',
+                                    f_up=2, f_down= f_down, t=tf.nn.elu)
+                if skip_connect:
+                    g = tf.nn.sigmoid(tf.get_variable("gate", shape=(1)))
+                    g_x1 = tf.nn.sigmoid(tf.get_variable("gate_x1", shape=(1)))
+                    g_x2 = tf.nn.sigmoid(tf.get_variable("gate_x2", shape=(1)))             
+        
+                    x1 = tf.image.resize_images(self.x1_input, updown.get_shape()[1], updown.get_shape()[2])
+                    x2 = tf.image.resize_images(self.x2_input, updown.get_shape()[1], updown.get_shape()[2])
+                    updown = updown * g + (g_x1) * x1 + (g_x2) * x2             
+        
+        if convolve_out:
+            w_conv0 = tf.get_variable("w_final1", shape= [f_down,f_down,c_down,c_up],
                                       initializer= tf.contrib.layers.xavier_initializer_conv2d())
-            b_conv0 = tf.get_variable("b_final1", shape= [C_hid])        
-            h_conv0 = tf.nn.elu(conv_keepdim(updown2, w_conv0) + b_conv0)
+            b_conv0 = tf.get_variable("b_final1", shape= [c_up])        
+            h_conv0 = tf.nn.elu(conv_keepdim(updown, w_conv0) + b_conv0)
             
-            w_conv1 = tf.get_variable("w_final2", shape= [1,1,C_hid,3],
+            w_conv1 = tf.get_variable("w_final2", shape= [f_out,f_out,c_up,3],
                                       initializer= tf.contrib.layers.xavier_initializer_conv2d())
             b_conv1 = tf.get_variable("b_final2", shape= [3])        
-            h_conv1 = tf.nn.elu(conv_keepdim(h_conv0, w_conv1) + b_conv1)            
+            h_conv1 = tf.nn.elu(conv_keepdim(h_conv0, w_conv1) + b_conv1)
+            #h_conv1 = tf.nn.relu(conv_keepdim(h_conv0, w_conv1) + b_conv1)
             
             penul = h_conv1
         else:
@@ -389,6 +421,5 @@ class RotNet(NeuralNet):
         out = img_normalize(penul)
         
         return out
-        #return out, [w_convT0, b_convT0, w_convT1, b_convT1]
         
         
