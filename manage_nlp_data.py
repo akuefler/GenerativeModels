@@ -102,7 +102,7 @@ def extract_glove(filename= './data/gloves/glove.6B.50d.txt'):
 
 class IMDB_Dataset():
     
-    def __init__(self):
+    def __init__(self, max_step= 50):
         M = np.load('embed_matrix.npz')
         self.L = M['arr_0']
         
@@ -111,23 +111,32 @@ class IMDB_Dataset():
                 n_neighbors=1, algorithm='ball_tree').fit(self.L)
         
         N = np.load('word2ix_dic.npz')
-        self.word2ix = N['arr_0'].all()      
-
-        halt= True
+        self.word2ix = N['arr_0'].all()
         
-    def translate(self, X, eos):
+        N = np.load('ix2word_dic.npz')
+        self.ix2word = N['arr_0'].all()        
+        
+        self.max_step= max_step
+
+        self.lang= np.array([word for _, word in self.ix2word.items()])
+        
+        
+    def translate(self, X, eos, embed= True):
         """
         X = (batch_size, max_step, vector_dim)
         eos=(batch_size,)
         """
-        batch_size, max_step, dim = X.shape
-        lang= np.array(self.word2ix.keys())
+        #batch_size, max_step, dim = X.shape
+        #lang= np.array(self.word2ix.keys())
         sentences= []
         
         for i, steps in enumerate(X):
-            #for j in range(eos[i]):   
+            #for j in range(eos[i]):
+            if steps.dtype == int:
+                steps= self.L[steps]
+                
             distances, matches= self.L_KNN.kneighbors(steps)
-            sent= ' '.join( list( lang[matches[0:eos[i]].flatten()] ) )
+            sent= ' '.join( list( self.lang[matches[0:eos[i]].flatten()] ) )
             sentences.append(sent)
             
         return sentences
@@ -153,14 +162,45 @@ class IMDB_Dataset():
                     except KeyError:
                         pass
                     
+                    if len(sentence) >= self.max_step:
+                        continue
+                    
                     if tok == '.' and len(sentence) >= 3:
                         x = np.array(sentence)
                         sentences.append(x)
                         sentence= []
                      
-        return sentences            
-            
+        return sentences
+    
+    def sample_batch(self, batch_size= 5, noise= False):
         
+        batch= []
+        eos= []
+        
+        for i in range(batch_size):                
+                sentences= []
+                while sentences == []:
+                    valence= np.random.choice(['pos', 'neg', 'unsup'])
+                    partial_path= './aclImdb/train/'+valence
+                    txt = np.random.choice(os.listdir(partial_path))                    
+
+                    sentences = self.getReviewSentences(partial_path+'/'+txt)
+                
+                try:
+                    sent= np.random.choice(sentences)
+                except ValueError:
+                    sent= sentences[0]
+                
+                if noise:
+                    sent= np.random.randint(0, self.L.shape[0], len(sent))
+                    
+                pad = self.max_step - len(sent)
+                #assert pad >= 0
+                
+                batch.append(np.column_stack( [sent[np.newaxis] , np.zeros((1, pad)).astype('int32')] ) )
+                eos.append(len(sent))
+            
+        return np.squeeze( np.array(batch) ), np.array(eos)
         
 
 #imdb = IMDB_Dataset()
