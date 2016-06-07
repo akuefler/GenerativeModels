@@ -282,140 +282,141 @@ class NeuralNet(object):
             
         return result
 
-class GAN(object):
-    def __init__(self, data, hyperparams):
+##Deprecated.
+#class GAN(object):
+    #def __init__(self, data, hyperparams):
 
-        self.word2ix = data.word2ix
-        self.vocab_size = len(self.word2ix.keys())
+        #self.word2ix = data.word2ix
+        #self.vocab_size = len(self.word2ix.keys())
         
-        self.hyperparams= hyperparams
-        self.batch_size = hyperparams['batch_size']
-        self.max_steps = hyperparams['max_steps']
-        self.seq_width = hyperparams['seq_width']
+        #self.hyperparams= hyperparams
+        #self.batch_size = hyperparams['batch_size']
+        #self.max_steps = hyperparams['max_steps']
+        #self.seq_width = hyperparams['seq_width']
         
-        self.L = tf.constant(data.L, name= 'embed', dtype= tf.float32)
+        #self.L = tf.constant(data.L, name= 'embed', dtype= tf.float32)
         
-        with tf.variable_scope("G"):
-            self.z_input = tf.placeholder(tf.int32,[self.batch_size, self.max_steps])
+        #with tf.variable_scope("G"):
+            #self.z_input = tf.placeholder(tf.int32,[self.batch_size, self.max_steps])
             
-            self.z_seq = tf.nn.embedding_lookup(self.L, self.z_input)
-            self.z_eos = tf.placeholder(tf.int32, shape= (self.batch_size,))
+            #self.z_seq = tf.nn.embedding_lookup(self.L, self.z_input)
+            #self.z_eos = tf.placeholder(tf.int32, shape= (self.batch_size,))
             
-            G, self.theta_g = self.generator(self.z_seq)
+            #G, self.theta_g = self.generator(self.z_seq)
             
-            self.g_outs= G
+            #self.g_outs= G
             
-        with tf.variable_scope("D") as scope:
-            self.x_input=tf.placeholder(tf.int32,[self.batch_size, self.max_steps]) # input M normally distributed floats
+        #with tf.variable_scope("D") as scope:
+            #self.x_input=tf.placeholder(tf.int32,[self.batch_size, self.max_steps]) # input M normally distributed floats
             
-            #D1 = self.discriminator2(self.x_input)
-            self.x_seq = tf.nn.embedding_lookup(self.L, self.x_input)
-            self.x_eos = tf.placeholder(tf.int32, shape= (self.batch_size,))
-            D1, D1_logits, _ = self.discriminator(self.x_seq, self.x_eos)
+            ##D1 = self.discriminator2(self.x_input)
+            #self.x_seq = tf.nn.embedding_lookup(self.L, self.x_input)
+            #self.x_eos = tf.placeholder(tf.int32, shape= (self.batch_size,))
+            #D1, D1_logits, _ = self.discriminator(self.x_seq, self.x_eos)
             
-            self.d1_outs= D1
+            #self.d1_outs= D1
             
-            scope.reuse_variables()
+            #scope.reuse_variables()
             
-            D2, D2_logits, self.theta_d= self.discriminator(G, self.z_eos)
+            #D2, D2_logits, self.theta_d= self.discriminator(G, self.z_eos)
             
-            self.d2_outs= D2
+            #self.d2_outs= D2
             
-            #theta_d = [w for w in tf.all_variables() if w.name[0] == 'D']
+            ##theta_d = [w for w in tf.all_variables() if w.name[0] == 'D']
                     
-        #self.obj_d=tf.reduce_mean(tf.log(D1)+tf.log(1-D2))
-        #self.obj_g=tf.reduce_mean(tf.log(D2))
+        ##self.obj_d=tf.reduce_mean(tf.log(D1)+tf.log(1-D2))
+        ##self.obj_g=tf.reduce_mean(tf.log(D2))
         
-        #adam = tf.train.AdamOptimizer()
+        ##adam = tf.train.AdamOptimizer()
             
-        # set up optimizer for G,D
+        ## set up optimizer for G,D
         
-        #self.opt_d= adam.minimize(1-self.obj_d, var_list= theta_d)
-        #self.opt_g= adam.minimize(1-self.obj_g, var_list= theta_g) # maximize log(D(G(z)))
+        ##self.opt_d= adam.minimize(1-self.obj_d, var_list= theta_d)
+        ##self.opt_g= adam.minimize(1-self.obj_g, var_list= theta_g) # maximize log(D(G(z)))
         
-        self.d_loss_real = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(D1_logits, tf.ones_like(D1)))
+        #self.d_loss_real = tf.reduce_mean(
+            #tf.nn.sigmoid_cross_entropy_with_logits(D1_logits, tf.ones_like(D1)))
         
-        self.d_loss_fake = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(D2_logits, tf.zeros_like(D2)))
+        #self.d_loss_fake = tf.reduce_mean(
+            #tf.nn.sigmoid_cross_entropy_with_logits(D2_logits, tf.zeros_like(D2)))
         
-        self.obj_d = self.d_loss_fake + self.d_loss_real
+        #self.obj_d = self.d_loss_fake + self.d_loss_real
         
-        self.obj_g = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            D2_logits, tf.ones_like(D2)))
+        #self.obj_g = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+            #D2_logits, tf.ones_like(D2)))
         
-        #Optimizers.
-        #self.opt_d = tf.train.AdamOptimizer(self.hyperparams['lr']) \
-            #.minimize(self.obj_d, var_list= theta_d)
+        ##Optimizers.
+        ##self.opt_d = tf.train.AdamOptimizer(self.hyperparams['lr']) \
+            ##.minimize(self.obj_d, var_list= theta_d)
         
-        #self.opt_g = tf.train.AdamOptimizer(self.hyperparams['lr']) \
-            #.minimize(self.obj_g, var_list= theta_g)        
+        ##self.opt_g = tf.train.AdamOptimizer(self.hyperparams['lr']) \
+            ##.minimize(self.obj_g, var_list= theta_g)        
         
         
         
-    def generator(self, z):
+    #def generator(self, z):
         
-        inputs = [tf.reshape(i, (self.batch_size, self.seq_width))\
-                  for i in tf.split(1, self.max_steps, z)]
+        #inputs = [tf.reshape(i, (self.batch_size, self.seq_width))\
+                  #for i in tf.split(1, self.max_steps, z)]
         
-        lstm_size= 100
+        #lstm_size= 100
         
-        cell = tf.nn.rnn_cell.LSTMCell(lstm_size, input_size= self.seq_width)
+        #cell = tf.nn.rnn_cell.LSTMCell(lstm_size, input_size= self.seq_width)
         
-        initial_state= cell.zero_state(self.batch_size, tf.float32)
+        #initial_state= cell.zero_state(self.batch_size, tf.float32)
         
-        #eos_ix = tf.reshape( self.z_eos, shape= (self.batch_size,))
-        lstm_outputs, states = tf.nn.rnn(cell, inputs,
-                                    initial_state= initial_state,
-                                    sequence_length= self.z_eos ) #ISSUE: Squeezing
+        ##eos_ix = tf.reshape( self.z_eos, shape= (self.batch_size,))
+        #lstm_outputs, states = tf.nn.rnn(cell, inputs,
+                                    #initial_state= initial_state,
+                                    #sequence_length= self.z_eos ) #ISSUE: Squeezing
         
-        #Variables:
-        W1 = tf.get_variable('W1', shape= (lstm_size, self.seq_width))
-        b1 = tf.get_variable('b1', shape= (self.seq_width,))
+        ##Variables:
+        #W1 = tf.get_variable('W1', shape= (lstm_size, self.seq_width))
+        #b1 = tf.get_variable('b1', shape= (self.seq_width,))
         
-        W2 = tf.get_variable('W2', shape= (self.seq_width, self.seq_width))
-        b2 = tf.get_variable('b2', shape= (self.seq_width,))        
+        #W2 = tf.get_variable('W2', shape= (self.seq_width, self.seq_width))
+        #b2 = tf.get_variable('b2', shape= (self.seq_width,))        
     
-        outputs= [None]*len(lstm_outputs)
-        for t, h1 in enumerate(lstm_outputs):
-            h2 = tf.nn.elu( tf.matmul(h1, W1) + b1 )
-            outputs[t] = ( tf.matmul(h2, W2) + b2 )
+        #outputs= [None]*len(lstm_outputs)
+        #for t, h1 in enumerate(lstm_outputs):
+            #h2 = tf.nn.elu( tf.matmul(h1, W1) + b1 )
+            #outputs[t] = ( tf.matmul(h2, W2) + b2 )
             
         
-        G = tf.reshape(tf.concat(0,outputs) , shape= (self.batch_size, self.max_steps, self.seq_width) )
+        #G = tf.reshape(tf.concat(0,outputs) , shape= (self.batch_size, self.max_steps, self.seq_width) )
         
-        return G, [w for w in tf.all_variables() if w.name[0] == 'G']
+        #return G, [w for w in tf.all_variables() if w.name[0] == 'G']
         
     
-    def discriminator(self, x, eos):
+    #def discriminator(self, x, eos):
         
-        inputs = [tf.reshape(i, (self.batch_size, self.seq_width))\
-                  for i in tf.split(1, self.max_steps, x)]
+        #inputs = [tf.reshape(i, (self.batch_size, self.seq_width))\
+                  #for i in tf.split(1, self.max_steps, x)]
         
-        lstm_size= 100
+        #lstm_size= 100
         
-        cell = tf.nn.rnn_cell.LSTMCell(lstm_size, input_size= self.seq_width)
+        #cell = tf.nn.rnn_cell.LSTMCell(lstm_size, input_size= self.seq_width)
         
-        initial_state= cell.zero_state(self.batch_size, tf.float32)
+        #initial_state= cell.zero_state(self.batch_size, tf.float32)
         
-        #eos_ix = tf.reshape( eos, shape= (self.batch_size,))
-        lstm_outputs, states = tf.nn.rnn(cell, inputs,
-                                    initial_state= initial_state,
-                                    sequence_length= eos) #What to do with z_eos vs. x_eos?
+        ##eos_ix = tf.reshape( eos, shape= (self.batch_size,))
+        #lstm_outputs, states = tf.nn.rnn(cell, inputs,
+                                    #initial_state= initial_state,
+                                    #sequence_length= eos) #What to do with z_eos vs. x_eos?
         
-        U = tf.get_variable('W', shape= (lstm_size, 1))
-        b = tf.get_variable('bs', shape= (1,))
+        #U = tf.get_variable('W', shape= (lstm_size, 1))
+        #b = tf.get_variable('bs', shape= (1,))
             
-        outputs= [None]*len(lstm_outputs)
-        for t, h in enumerate(lstm_outputs):
-            outputs[t] = ( tf.matmul(h, U) + b )
+        #outputs= [None]*len(lstm_outputs)
+        #for t, h in enumerate(lstm_outputs):
+            #outputs[t] = ( tf.matmul(h, U) + b )
             
-        predictions = tf.concat(1, outputs, name= 'preds')
+        #predictions = tf.concat(1, outputs, name= 'preds')
         
-        logits= gather_indices(predictions, eos)
-        output= tf.nn.sigmoid(logits)
+        #logits= gather_indices(predictions, eos)
+        #output= tf.nn.sigmoid(logits)
             
-        return output, logits, [w for w in tf.all_variables() if w.name[0] == 'D']     
+        #return output, logits, [w for w in tf.all_variables() if w.name[0] == 'D']     
         
                   
 class RotNet(NeuralNet):
@@ -427,6 +428,9 @@ class RotNet(NeuralNet):
         self.batch_size= self.hyperparams['batch_size']
         self.scale = self.hyperparams['scale']
         self.num_ups= self.hyperparams['num_ups']
+        share_weights= self.hyperparams['share_weights']
+        
+        reg = self.hyperparams['reg']
         
         #self.batch_size= 10
         self.C= 3
@@ -455,7 +459,15 @@ class RotNet(NeuralNet):
             P1 = self.extractor(self.x1_input, merge_dim)
             
         # Layers corresponding to perspective 2
-        with tf.variable_scope("P2"):
+        if share_weights:
+            name_scope= "P1"
+        else:
+            name_scope= "P2"
+            
+        with tf.variable_scope(name_scope) as scope:
+            if share_weights:
+                scope.reuse_variables()
+                
             self.x2_input= tf.placeholder(tf.float32, shape= (self.batch_size, H, W, C), name= 'x2')
             P2 = self.extractor(self.x2_input, merge_dim)
             
@@ -474,17 +486,20 @@ class RotNet(NeuralNet):
                 
             self.output_layer = self.generator(M)
             
+        J_reg = tf.add_n([tf.nn.l2_loss(t) for t in tf.trainable_variables()])
+            
         if self.hyperparams['loss'] == 'cosine':
-            self.J = cosine_loss(self.output_layer, self.y_input)
+            self.J = cosine_loss(self.output_layer, self.y_input) + reg * J_reg
             
         elif self.hyperparams['loss'] == 'MSE':
-            self.J = MSE_loss(self.output_layer, self.y_input)
+            self.J = MSE_loss(self.output_layer, self.y_input) + reg * J_reg
             
         else:
             assert False
             
         #regloss = tf.add_n([tf.nn.l2_loss(t) for t in tf.trainable_variables()])
         #self.J += hyperparams['reg'] * regloss
+        
         
     def extractor(self, x, output_dim, num_conv= 2, chan_out= 50):
         """
@@ -501,7 +516,7 @@ class RotNet(NeuralNet):
         #h_conv0 = tf.nn.elu(conv_keepdim(x, w_conv0) + b_conv0)
         #h_pool0 = max_pool_2x2(h_conv0)
         
-        h= multi_conv(x, num_conv, 3, chan_out, f, nonlin= tf.nn.elu)
+        h= multi_conv(x, num_conv, 3, chan_out, f, dropout= self.hyperparams['dropout'], nonlin= tf.nn.elu)
         
         # Shrink
         h_chan2 = 2
@@ -509,21 +524,25 @@ class RotNet(NeuralNet):
                                   initializer= tf.contrib.layers.xavier_initializer_conv2d())
         b_conv2 = tf.get_variable("b_shrink", shape= [h_chan2])        
         h_conv2 = tf.nn.elu(conv_keepdim(h, w_conv2) + b_conv2)
-        h_pool2 = max_pool_4x4(h_conv2)        
+        h_pool2 = max_pool_4x4(h_conv2)
+        
+        drop0 = tf.nn.dropout(h_pool2, self.hyperparams['dropout'])
         
         # Fully-Connected 1
-        h_pool1_flat = tf.reshape(h_pool2, [self.batch_size, 2*((2 ** (self.scale - 2))**2)])
+        h_pool1_flat = tf.reshape(drop0, [self.batch_size, 2*((2 ** (self.scale - 2))**2)])
         
         w_fc0 = tf.get_variable("w3", [h_pool1_flat.get_shape()[1], output_dim],
                                 initializer= tf.contrib.layers.xavier_initializer())
         b_fc0 = tf.get_variable("b3", [output_dim])         
         h_fc0 = tf.nn.elu(tf.matmul(h_pool1_flat, w_fc0) + b_fc0)
         
+        drop1 = tf.nn.dropout(h_fc0, self.hyperparams['dropout'])        
+        
         # Fully-Connected 2
-        w_fc1 = tf.get_variable("w4", [h_fc0.get_shape()[1], output_dim],
+        w_fc1 = tf.get_variable("w4", [drop1.get_shape()[1], output_dim],
                                 initializer= tf.contrib.layers.xavier_initializer())
         b_fc1 = tf.get_variable("b4", [output_dim])         
-        h_fc1 = tf.nn.elu(tf.matmul(h_fc0, w_fc1) + b_fc1)
+        h_fc1 = tf.nn.elu(tf.matmul(drop1, w_fc1) + b_fc1)
         
         h_fc1 = tf.reshape(h_fc1, shape= (self.batch_size, self.H_merge, self.W_merge, self.C_merge))
 
@@ -565,7 +584,8 @@ class RotNet(NeuralNet):
                 ##Deconv 1:        
                 updown = updown_module(updown, convolve= convolve_up, 
                                     c_up= c_up, c_down= c_down, up= up,
-                                    f_up=2, f_down= f_down, t=tf.nn.elu)
+                                    f_up=2, f_down= f_down, t=tf.nn.elu,
+                                    dropout = self.hyperparams['dropout'])
                 if skip_connect:            
                     x1 = tf.image.resize_images(self.x1_input, updown.get_shape()[1], updown.get_shape()[2])
                     x2 = tf.image.resize_images(self.x2_input, updown.get_shape()[1], updown.get_shape()[2])
@@ -583,11 +603,12 @@ class RotNet(NeuralNet):
                                       initializer= tf.contrib.layers.xavier_initializer_conv2d())
             b_conv0 = tf.get_variable("b_final1", shape= [c_up])        
             h_conv0 = tf.nn.elu(conv_keepdim(updown, w_conv0) + b_conv0)
+            a = tf.nn.dropout(h_conv0, keep_prob= self.hyperparams['dropout'])
             
             w_conv1 = tf.get_variable("w_final2", shape= [f_out,f_out,c_up,3],
                                       initializer= tf.contrib.layers.xavier_initializer_conv2d())
             b_conv1 = tf.get_variable("b_final2", shape= [3])        
-            h_conv1 = conv_keepdim(h_conv0, w_conv1) + b_conv1
+            h_conv1 = conv_keepdim(a, w_conv1) + b_conv1
             
             penul = h_conv1
         else:
@@ -608,10 +629,6 @@ class RotNet(NeuralNet):
             out = penul
         
         return out
-        
-        
-
-
 
 
 class SentNet(object):
@@ -650,9 +667,11 @@ class SentNet(object):
             
             self.output_layer= output_layer
             
+        J_reg = self.create_reg_tensor()
+            
         if self.hyperparams['loss'] == 'softmax':
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits,self.y_input)
-            self.J = tf.reduce_mean( loss )
+            self.J = tf.reduce_mean( loss ) + J_reg
         
     def discriminator(self, x, eos):
         
