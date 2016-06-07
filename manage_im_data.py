@@ -76,9 +76,10 @@ def vf2im(X):
     return X
 
 class TT_object(object):
-    def __init__(self, path = 'batch1/Bannanas/', angle= 'Bottom/', scale= 7):
+    def __init__(self, path = 'batch1/Bannanas/', angle= 'Bottom/', scale= 7, dataset= None):
         self.scale = scale
         self.ims = {}
+        self.dataset= dataset
         root = './data/CALTECH/'
         
         for im in os.listdir(root+path+angle):
@@ -150,12 +151,13 @@ class CIFAR_Data_Loader(object):
         
     
 class Rot_Data_Loader(object):
-    def __init__(self, objects= [('batch1', 'Bannanas'), ('batch1', 'Base')],\
-                 interval = 2, scale= 7, max_data= None):
-        self.objects= [TT_object(path= folder+'/'+item+'/', scale= scale)\
-                       for folder, item in objects]
+    def __init__(self, objects= [('Bannanas','train'), ('Base','val')],\
+                 interval = 2, scale= 7, max_train_data= None, max_val_data= None):
+        self.objects= [TT_object(path= 'batch1'+'/'+item+'/', scale= scale, dataset= dataset)\
+                       for item, dataset in objects]
         
-        data = []
+        t_data = []
+        v_data = []
         
         for obj in self.objects:
             combos= list(itertools.combinations(obj.ims.keys(), 2))
@@ -164,14 +166,32 @@ class Rot_Data_Loader(object):
                     #print "skipped!"
                     continue
                 
-                data.append((obj,)+combo)
-                
-        self.train_data = [datapoint for i, datapoint in enumerate(data) if i % interval != 0]
-        self.val_data = [datapoint for i, datapoint in enumerate(data) if i % interval == 0]
+                if obj.dataset == 'train':
+                    t_data.append((obj,)+combo)
+                elif obj.dataset == 'val':
+                    v_data.append((obj,)+combo)
+                else:
+                    assert False
+                        
+        #self.train_data = [datapoint for i, datapoint in enumerate(t_data) if i % interval != 0]
+        #self.val_data = [datapoint for i, datapoint in enumerate(v_data) if i % interval == 0]
         
-        if max_data is not None:
-            self.train_data=self.train_data[0:max_data]
-            self.val_data = self.val_data[0:max_data]
+        t_n = len(t_data)
+        v_n = len(v_data)
+        
+        #np.random.seed(1)
+        t_keep = np.random.choice(np.arange(0,t_n), t_n/2, replace= False)
+        self.train_data = [datapoint for i, datapoint in enumerate(t_data) if i in t_keep]
+        
+        #np.random.seed(2)
+        v_keep = np.random.choice(np.arange(0,v_n), v_n/2, replace= False)
+        self.val_data = [datapoint for i, datapoint in enumerate(v_data) if i in v_keep]        
+        
+        if max_train_data is not None:
+            self.train_data=self.train_data[0:max_train_data]
+            
+        if max_val_data is not None:
+            self.val_data = self.val_data[0:max_val_data]
         
     def minibatch_2_Xy(self, minibatch):
         X1= []
@@ -210,6 +230,9 @@ class Rot_Data_Loader(object):
         return minibatches
 
 def segment(filename):
+    """
+    code adapted from: http://docs.opencv.org/3.0-beta/doc/py_tutorials/py_ml/py_kmeans/py_kmeans_opencv/py_kmeans_opencv.html
+    """
     img = ndimage.imread(filename)
     #img = skimage.transform.resize(img, (64, 64))
     
@@ -218,9 +241,12 @@ def segment(filename):
     # convert to np.float32
     Z = np.float32(Z)
     
-    # define criteria, number of clusters(K) and apply kmeans()
+    # 	
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
     K = 7
+    if filename.split('/')[4] in ["FlowerLamp","TeddyBear"]:
+        K = 18
+        
     ret,label,center=cv2.kmeans(Z,K,criteria,10,cv2.KMEANS_RANDOM_CENTERS)
     
     # Now convert back into uint8, and make original image
@@ -228,7 +254,9 @@ def segment(filename):
     res = center[label.flatten()]
     res2 = res.reshape((img.shape))
 
-    mask1= (res2[:,:,0] > 110).astype('int32') * (res2[:,:,2] > 105).astype('int32')
+    mask1= (res2[:,:,0] > 100).astype('int32') \
+        * (res2[:,:,1] > 100).astype('int32') \
+        * (res2[:,:,2] > 100).astype('int32')
     #mask2 = (res2.argmax(axis= 2) == 1).astype('int')
     
     mask = mask1
@@ -262,7 +290,7 @@ def create_mask_data(path):
          
     #halt= True
     
-#for toy in ['TeddyBear']:
+#for toy in ['FlowerLamp','TeddyBear']:
     #print toy
     #create_mask_data('./data/CALTECH/batch1/'+toy)
     
